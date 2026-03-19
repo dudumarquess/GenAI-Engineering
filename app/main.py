@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from app.routes.llm_routes import router as llm_router
+from app.routes.classify_routes import router as classify_router
 
 app = FastAPI(title="GenAI Engineering API", description="A simple API to interact with a language model.")
 
 app.include_router(llm_router)
+app.include_router(classify_router)
 
 @app.get("/")
 def read_root():
