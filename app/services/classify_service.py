@@ -1,10 +1,10 @@
 import json
 
-from langchain_groq import ChatGroq
+from app.core.model_factory import get_llm
 from langchain_core.messages import SystemMessage, HumanMessage
-from app.core.config import GROQ_API_KEY
 
-llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.2,groq_api_key=GROQ_API_KEY)
+
+llm = get_llm()
 
 def classify_text(text: str) -> dict:
     system_prompt = """
