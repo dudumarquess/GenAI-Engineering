@@ -1,12 +1,14 @@
 import json
 
 from app.core.model_factory import get_llm
+from app.core.logger import logger
 from langchain_core.messages import SystemMessage, HumanMessage
 
 
 llm = get_llm()
 
 def classify_text(text: str) -> dict:
+    logger.info(f"Classifying text: {text}")
     system_prompt = """
 Your task is to classify the following text into one of the following categories:
 - Question
@@ -39,11 +41,13 @@ do not include markdown formatting in the response.
     
     try:
         response = llm.invoke(messages)
+        logger.info(f"LLM response: {response.content}")
         raw_response = response.content.strip()
         
         parsed = json.loads(raw_response)
         
         if "label" not in parsed or "reason" not in parsed:
+            logger.error(f"LLM response missing required fields: {parsed}")
             raise ValueError("Missing 'label' or 'reason' in LLM response.")
         return parsed
     except json.JSONDecodeError:
