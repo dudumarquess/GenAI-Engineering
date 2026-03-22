@@ -7,33 +7,80 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 llm = get_llm()
 
+VALID_LABELS = {"question", "complaint", "request", "other"}
+
+def safe_parse_json(raw_response: str) -> dict | None:
+    try:
+        return json.loads(raw_response)
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decoding error: {e}")
+        return None
+    
+def validate_output(parsed: dict) -> bool:
+    if not isinstance(parsed, dict):
+        logger.warning("Parsed output is not a dictionary")
+        return False
+
+    if "label" not in parsed or "reason" not in parsed:
+        logger.warning("Parsed output missing required keys: label and/or reason")
+        return False
+
+    if not isinstance(parsed["label"], str):
+        logger.warning("Parsed output contains a non-string label")
+        return False
+
+    if not isinstance(parsed["reason"], str):
+        logger.warning("Parsed output contains a non-string reason")
+        return False
+
+    if parsed["label"] not in VALID_LABELS:
+        logger.warning(f"Invalid label: {parsed['label']}")
+        return False
+
+    if not parsed["reason"].strip():
+        logger.warning("Parsed output contains an empty reason")
+        return False
+
+    return True
+
+def fallback_response():
+    return {
+        "label": "other",
+        "reason": "Fallback due to invalid LLM output"
+    }
+
 def classify_text(text: str) -> dict:
     logger.info(f"Classifying text: {text}")
     system_prompt = """
-Your task is to classify the following text into one of the following categories:
-- Question
-- Complaint
-- Request
-- Other
+        Your task is to classify the following text into one of the following categories:
+        - question
+        - complaint
+        - request
+        - other
 
-Return only a valid output JSON:
-{
-    "label": "Question" | "Complaint" | "Request" | "Other",
-    "reason": "A brief explanation of why the text was classified into this category."
-}
+        Return ONLY valid JSON with this exact structure:
+        {
+        "label": "question",
+        "reason": "short explanation"
+        }
 
-Examples:
-“Can you tell me when the office opens?” → question
+        The value of "label" must be exactly one of:
+        question, complaint, request, other
 
-“Your support team never replied.” → complaint
+        Examples:
+        “Can you tell me when the office opens?” → question
 
-“Please send me the invoice.” → request
+        “Your support team never replied.” → complaint
 
-“The sky is very clear today.” → other
+        “Please send me the invoice.” → request
 
-do not include any additional text or formatting.
-do not include markdown formatting in the response.
-"""
+        “The sky is very clear today.” → other
+
+        do not include any additional text or formatting.
+        do not include markdown formatting in the response.
+        do not include any explanations or disclaimers outside of the JSON response.
+        the label must be one of the specified categories and the reason should be concise and directly related to the content of the text.
+    """
     messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=text),
@@ -44,13 +91,18 @@ do not include markdown formatting in the response.
         logger.info(f"LLM response: {response.content}")
         raw_response = response.content.strip()
         
-        parsed = json.loads(raw_response)
+        parsed = safe_parse_json(raw_response)
+        if isinstance(parsed, dict):
+            label_value = parsed.get("label")
+            if isinstance(label_value, str):
+                parsed["label"] = label_value.lower()
         
-        if "label" not in parsed or "reason" not in parsed:
-            logger.error(f"LLM response missing required fields: {parsed}")
-            raise ValueError("Missing 'label' or 'reason' in LLM response.")
+        if not validate_output(parsed):
+            logger.warning(f"invalid output from LLM: {parsed}")
+            return fallback_response()
+         
         return parsed
-    except json.JSONDecodeError:
-        raise ValueError(f"LLM response is not valid JSON: {raw_response}")
     except Exception as e:
-        raise ValueError(f"Error processing LLM response: {str(e)}")
+        logger.error(f"Error processing LLM response: {str(e)}")
+        return fallback_response()
+    
